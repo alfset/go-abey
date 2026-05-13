@@ -1,14 +1,11 @@
 module github.com/AbeyFoundation/go-abey
 
-go 1.24.0
-
-toolchain go1.24.2
+go 1.22.0
 
 replace gopkg.in/fatih/set.v0 v0.2.1 => github.com/loinfish/set v0.0.1
 
 require (
 	github.com/allegro/bigcache v1.2.1
-	github.com/aristanetworks/goarista v0.0.0-20250211154211-46edb1645c7a
 	github.com/btcsuite/btcd v0.21.0-beta
 	github.com/cespare/cp v1.1.1
 	github.com/davecgh/go-spew v1.1.1
@@ -42,9 +39,9 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/syndtr/goleveldb v1.0.0
 	github.com/tendermint/go-amino v0.12.0
-	golang.org/x/crypto v0.46.0
-	golang.org/x/net v0.48.0
-	golang.org/x/sys v0.39.0
+	golang.org/x/crypto v0.33.0
+	golang.org/x/net v0.34.0
+	golang.org/x/sys v0.30.0
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c
 	gopkg.in/fatih/set.v0 v0.2.1 // 27c40922c40b43fe04554d8223a402af3ea333f3
 	gopkg.in/karalabe/cookiejar.v2 v2.0.0-20150724131613-8dcd6a7f4951
@@ -52,8 +49,6 @@ require (
 	gopkg.in/olebedev/go-duktape.v3 v3.0.0-20180302121509-abf0ba0be5d5
 	gopkg.in/urfave/cli.v1 v1.20.0
 )
-
-require google.golang.org/grpc v1.79.3
 
 require (
 	github.com/Azure/go-autorest v14.2.0+incompatible // indirect
@@ -63,10 +58,12 @@ require (
 	github.com/Azure/go-autorest/logger v0.2.1 // indirect
 	github.com/Azure/go-autorest/tracing v0.6.0 // indirect
 	github.com/form3tech-oss/jwt-go v3.2.2+incompatible // indirect
+	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/kr/pretty v0.2.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
+	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/maruel/panicparse v0.0.0-20160720141634-ad661195ed0e // indirect
 	github.com/maruel/ut v1.0.2 // indirect
 	github.com/mattn/go-runewidth v0.0.9 // indirect
@@ -74,10 +71,9 @@ require (
 	github.com/naoina/go-stringutil v0.1.0 // indirect
 	github.com/nsf/termbox-go v1.1.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	golang.org/x/term v0.38.0 // indirect
-	golang.org/x/text v0.32.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
-	google.golang.org/protobuf v1.36.10 // indirect
+	golang.org/x/term v0.29.0 // indirect
+	golang.org/x/text v0.22.0 // indirect
+	google.golang.org/protobuf v1.36.2 // indirect
 	gopkg.in/sourcemap.v1 v1.0.5 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gotest.tools/v3 v3.5.2 // indirect

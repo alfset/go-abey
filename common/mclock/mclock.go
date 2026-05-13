@@ -19,16 +19,19 @@ package mclock
 
 import (
 	"time"
-
-	"github.com/aristanetworks/goarista/monotime"
+	_ "unsafe" // required to use //go:linkname
 )
+
+//go:noescape
+//go:linkname nanotime runtime.nanotime
+func nanotime() int64
 
 // AbsTime represents absolute monotonic time.
 type AbsTime time.Duration
 
 // Now returns the current absolute monotonic time.
 func Now() AbsTime {
-	return AbsTime(monotime.Now())
+	return AbsTime(nanotime())
 }
 
 // Add returns t + d.
@@ -55,7 +58,7 @@ type System struct{}
 
 // Now implements Clock.
 func (System) Now() AbsTime {
-	return AbsTime(monotime.Now())
+	return AbsTime(nanotime())
 }
 
 // Sleep implements Clock.
