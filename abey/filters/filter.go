@@ -19,6 +19,7 @@ package filters
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 
 	"github.com/AbeyFoundation/go-abey/abeydb"
@@ -55,8 +56,24 @@ type Filter struct {
 	addresses  []common.Address
 	topics     [][]common.Hash
 
+	maxLogs int // Cap on collected logs, 0 for unlimited
+	matched int // Logs collected so far, checked against maxLogs during the scan
+
 	block   common.Hash // Block hash if filtering a single block
 	matcher *bloombits.Matcher
+}
+
+// recordMatches accounts for newly matched logs and reports whether the filter
+// has exceeded its budget. The cap is applied while scanning rather than to the
+// finished result so a query matching millions of logs is aborted before it can
+// buffer them all in memory.
+func (f *Filter) recordMatches(found int) error {
+	f.matched += found
+	if f.maxLogs > 0 && f.matched > f.maxLogs {
+		return fmt.Errorf("%w: query matched more than %d logs, narrow the block range or add filters",
+			ErrLogsLimitExceeded, f.maxLogs)
+	}
+	return nil
 }
 
 // NewRangeFilter creates a new filter which uses a bloom filter on blocks to
@@ -88,6 +105,7 @@ func NewRangeFilter(backend Backend, begin, end int64, addresses []common.Addres
 	filter.matcher = bloombits.NewMatcher(size, filters)
 	filter.begin = begin
 	filter.end = end
+	filter.maxLogs = currentLimits().MaxLogs
 
 	return filter
 }
@@ -201,6 +219,9 @@ func (f *Filter) indexedLogs(ctx context.Context, end uint64) ([]*types.Log, err
 				return logs, err
 			}
 			logs = append(logs, found...)
+			if err := f.recordMatches(len(found)); err != nil {
+				return logs, err
+			}
 
 		case <-ctx.Done():
 			return logs, ctx.Err()
@@ -214,6 +235,15 @@ func (f *Filter) unindexedLogs(ctx context.Context, end uint64) ([]*types.Log, e
 	var logs []*types.Log
 
 	for ; f.begin <= int64(end); f.begin++ {
+		// Header and receipt lookups are local database reads that never observe
+		// cancellation on their own, so the scan has to check the context itself.
+		// Without this an expired query keeps consuming CPU and disk IOPS long
+		// after the caller has been given up on.
+		select {
+		case <-ctx.Done():
+			return logs, ctx.Err()
+		default:
+		}
 		header, err := f.backend.HeaderByNumber(ctx, rpc.BlockNumber(f.begin))
 		if header == nil || err != nil {
 			return logs, err
@@ -223,6 +253,9 @@ func (f *Filter) unindexedLogs(ctx context.Context, end uint64) ([]*types.Log, e
 			return logs, err
 		}
 		logs = append(logs, found...)
+		if err := f.recordMatches(len(found)); err != nil {
+			return logs, err
+		}
 	}
 	return logs, nil
 }

@@ -324,26 +324,23 @@ func (api *PublicFilterAPI) NewFilter(crit FilterCriteria) (rpc.ID, error) {
 //
 // https://github.com/ethereum/wiki/wiki/JSON-RPC#abey_getlogs
 func (api *PublicFilterAPI) GetLogs(ctx context.Context, crit FilterCriteria) ([]*types.Log, error) {
-	// Convert the RPC block numbers into internal representations
-	if crit.FromBlock == nil {
-		crit.FromBlock = big.NewInt(rpc.LatestBlockNumber.Int64())
-	}
-	if crit.ToBlock == nil {
-		crit.ToBlock = big.NewInt(rpc.LatestBlockNumber.Int64())
-	}
-	fNumber := crit.FromBlock.Int64()
-	tNumber := crit.ToBlock.Int64()
-	if tNumber > fNumber && tNumber-fNumber > 500 {
-		return nil, errors.New("Start and end blocks are separated by more than 10 blocks")
-	}
-	// Create and run the filter to get all the logs
-	filter := NewRangeFilter(api.backend, fNumber, tNumber, crit.Addresses, crit.Topics)
+	ctx, cancel := context.WithTimeout(ctx, currentLimits().Timeout)
+	defer cancel()
 
-	logs, err := filter.Logs(ctx)
+	// Resolve the latest/pending sentinels into real block numbers before checking
+	// the range, otherwise a "latest" bound bypasses the cap entirely.
+	begin, end, err := resolveRange(ctx, api.backend, crit.FromBlock, crit.ToBlock)
 	if err != nil {
 		return nil, err
 	}
-	return returnLogs(logs), err
+	// Create and run the filter to get all the logs
+	filter := NewRangeFilter(api.backend, begin, end, crit.Addresses, crit.Topics)
+
+	logs, err := filter.Logs(ctx)
+	if err != nil {
+		return nil, translateQueryErr(err)
+	}
+	return returnLogs(logs), nil
 }
 
 // UninstallFilter removes the filter with the given filter id.
@@ -376,23 +373,22 @@ func (api *PublicFilterAPI) GetFilterLogs(ctx context.Context, id rpc.ID) ([]*ty
 		return nil, fmt.Errorf("filter not found")
 	}
 
-	begin := rpc.LatestBlockNumber.Int64()
-	if f.crit.FromBlock != nil {
-		begin = f.crit.FromBlock.Int64()
+	// Installed filters are scanned through the same expensive path as eth_getLogs
+	// and must honour the same limits, otherwise eth_newFilter + eth_getFilterLogs
+	// is a free bypass of every guard applied there.
+	ctx, cancel := context.WithTimeout(ctx, currentLimits().Timeout)
+	defer cancel()
+
+	begin, end, err := resolveRange(ctx, api.backend, f.crit.FromBlock, f.crit.ToBlock)
+	if err != nil {
+		return nil, err
 	}
-	end := rpc.LatestBlockNumber.Int64()
-	if f.crit.ToBlock != nil {
-		end = f.crit.ToBlock.Int64()
-	}
-	/*if end > begin && end-begin > 10 {
-		return nil, errors.New("Start and end blocks are separated by more than 10 blocks")
-	}*/
 	// Create and run the filter to get all the logs
 	filter := NewRangeFilter(api.backend, begin, end, f.crit.Addresses, f.crit.Topics)
 
 	logs, err := filter.Logs(ctx)
 	if err != nil {
-		return nil, err
+		return nil, translateQueryErr(err)
 	}
 	return returnLogs(logs), nil
 }
