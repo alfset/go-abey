@@ -42,6 +42,7 @@ import (
 
 	"github.com/AbeyFoundation/go-abey/abey"
 	"github.com/AbeyFoundation/go-abey/abey/downloader"
+	"github.com/AbeyFoundation/go-abey/abey/filters"
 	"github.com/AbeyFoundation/go-abey/abey/gasprice"
 	"github.com/AbeyFoundation/go-abey/abeydb"
 	"github.com/AbeyFoundation/go-abey/abeystats"
@@ -51,6 +52,7 @@ import (
 	"github.com/AbeyFoundation/go-abey/core/state"
 	"github.com/AbeyFoundation/go-abey/core/vm"
 	"github.com/AbeyFoundation/go-abey/crypto"
+	"github.com/AbeyFoundation/go-abey/internal/abeyapi"
 	"github.com/AbeyFoundation/go-abey/les"
 	"github.com/AbeyFoundation/go-abey/log"
 	"github.com/AbeyFoundation/go-abey/metrics"
@@ -61,6 +63,7 @@ import (
 	"github.com/AbeyFoundation/go-abey/p2p/nat"
 	"github.com/AbeyFoundation/go-abey/p2p/netutil"
 	"github.com/AbeyFoundation/go-abey/params"
+	"github.com/AbeyFoundation/go-abey/rpc"
 	"gopkg.in/urfave/cli.v1"
 )
 
@@ -431,6 +434,46 @@ var (
 		Usage: "API's offered over the HTTP-RPC interface",
 		Value: "",
 	}
+	RPCReadTimeoutFlag = cli.DurationFlag{
+		Name:  "rpc.readtimeout",
+		Usage: "Maximum duration for reading an HTTP-RPC request",
+		Value: rpc.DefaultHTTPTimeouts.ReadTimeout,
+	}
+	RPCWriteTimeoutFlag = cli.DurationFlag{
+		Name:  "rpc.writetimeout",
+		Usage: "Maximum duration before timing out an HTTP-RPC response write (must exceed --rpc.getlogs.timeout)",
+		Value: rpc.DefaultHTTPTimeouts.WriteTimeout,
+	}
+	RPCIdleTimeoutFlag = cli.DurationFlag{
+		Name:  "rpc.idletimeout",
+		Usage: "Maximum duration an idle keep-alive HTTP-RPC connection is kept open",
+		Value: rpc.DefaultHTTPTimeouts.IdleTimeout,
+	}
+	GetLogsMaxRangeFlag = cli.Int64Flag{
+		Name:  "rpc.getlogs.maxrange",
+		Usage: "Maximum block span accepted by abey_getLogs and abey_getFilterLogs (0 = unlimited)",
+		Value: filters.DefaultLimits.MaxBlockRange,
+	}
+	GetLogsMaxLogsFlag = cli.IntFlag{
+		Name:  "rpc.getlogs.maxlogs",
+		Usage: "Maximum number of logs a single log query may return (0 = unlimited)",
+		Value: filters.DefaultLimits.MaxLogs,
+	}
+	GetLogsTimeoutFlag = cli.DurationFlag{
+		Name:  "rpc.getlogs.timeout",
+		Usage: "Maximum duration a single log query may run before being cancelled",
+		Value: filters.DefaultLimits.Timeout,
+	}
+	RPCGasCapFlag = cli.Uint64Flag{
+		Name:  "rpc.gascap",
+		Usage: "Maximum gas a single abey_call or abey_estimateGas invocation may execute (0 = unlimited)",
+		Value: abeyapi.DefaultRPCLimits.GasCap,
+	}
+	RPCEVMTimeoutFlag = cli.DurationFlag{
+		Name:  "rpc.evmtimeout",
+		Usage: "Maximum duration a single abey_call or abey_estimateGas invocation may run EVM code",
+		Value: abeyapi.DefaultRPCLimits.EVMTimeout,
+	}
 	IPCDisabledFlag = cli.BoolFlag{
 		Name:  "ipcdisable",
 		Usage: "Disable the IPC-RPC server",
@@ -784,6 +827,36 @@ func setHTTP(ctx *cli.Context, cfg *node.Config) {
 	if ctx.GlobalIsSet(RPCVirtualHostsFlag.Name) {
 		cfg.HTTPVirtualHosts = splitAndTrim(ctx.GlobalString(RPCVirtualHostsFlag.Name))
 	}
+	setRPCLimits(ctx)
+}
+
+// setRPCLimits applies the HTTP-RPC connection timeouts and the log query limits.
+// Both are process-wide and have to be installed before the endpoints start
+// serving, which is why they are applied here rather than carried on node.Config.
+func setRPCLimits(ctx *cli.Context) {
+	rpc.SetHTTPTimeouts(rpc.HTTPTimeouts{
+		ReadTimeout:  ctx.GlobalDuration(RPCReadTimeoutFlag.Name),
+		WriteTimeout: ctx.GlobalDuration(RPCWriteTimeoutFlag.Name),
+		IdleTimeout:  ctx.GlobalDuration(RPCIdleTimeoutFlag.Name),
+	})
+
+	abeyapi.SetRPCLimits(abeyapi.RPCLimits{
+		GasCap:     ctx.GlobalUint64(RPCGasCapFlag.Name),
+		EVMTimeout: ctx.GlobalDuration(RPCEVMTimeoutFlag.Name),
+	})
+
+	logLimits := filters.Limits{
+		MaxBlockRange: ctx.GlobalInt64(GetLogsMaxRangeFlag.Name),
+		MaxLogs:       ctx.GlobalInt(GetLogsMaxLogsFlag.Name),
+		Timeout:       ctx.GlobalDuration(GetLogsTimeoutFlag.Name),
+	}
+	// A query that outlives the response write gets its connection cut mid-flight,
+	// so the caller sees a broken pipe instead of the actionable timeout error.
+	if write := ctx.GlobalDuration(RPCWriteTimeoutFlag.Name); logLimits.Timeout >= write {
+		Fatalf("Option %q (%v) must be smaller than %q (%v)",
+			GetLogsTimeoutFlag.Name, logLimits.Timeout, RPCWriteTimeoutFlag.Name, write)
+	}
+	filters.SetLimits(logLimits)
 }
 
 // setWS creates the WebSocket RPC listener interface string from the set
