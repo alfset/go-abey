@@ -869,6 +869,13 @@ func (s *PublicBlockChainAPI) doCall(ctx context.Context, args CallArgs, blockHr
 	if gas == 0 {
 		gas = math.MaxUint64 / 2
 	}
+	// Cap the allowance. The gas pool below is MaxUint64 because the caller is not
+	// paying, so gas is the only thing bounding how long this executes -- and both
+	// the default above and the caller-supplied value are otherwise unbounded.
+	if cap := currentRPCLimits().GasCap; cap != 0 && gas > cap {
+		log.Warn("Capping gas allowance down to the configured cap", "requested", gas, "cap", cap)
+		gas = cap
+	}
 	if gasPrice.Sign() == 0 {
 		gasPrice = new(big.Int).SetUint64(defaultGasPrice)
 	}
@@ -920,7 +927,7 @@ func (s *PublicBlockChainAPI) doCall(ctx context.Context, args CallArgs, blockHr
 // Call executes the given transaction on the state for the given block number.
 // It doesn't make and changes in the state/blockchain and is useful to execute and retrieve values.
 func (s *PublicBlockChainAPI) Call(ctx context.Context, args CallArgs, blockHr rpc.BlockNumberOrHash) (hexutil.Bytes, error) {
-	result, err := s.doCall(ctx, args, blockHr, vm.Config{}, 5*time.Second)
+	result, err := s.doCall(ctx, args, blockHr, vm.Config{}, currentRPCLimits().EVMTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -937,6 +944,18 @@ func (s *PublicBlockChainAPI) Call(ctx context.Context, args CallArgs, blockHr r
 // EstimateGas returns an estimate of the amount of gas needed to execute the
 // given transaction against the current pending block.
 func (s *PublicBlockChainAPI) EstimateGas(ctx context.Context, args CallArgs, blockNrOrHash *rpc.BlockNumberOrHash) (hexutil.Uint64, error) {
+	limits := currentRPCLimits()
+
+	// One deadline for the whole search rather than one per iteration: the loop
+	// runs log2(hi) times, so a per-iteration budget would multiply into a worst
+	// case far beyond what the HTTP layer is willing to wait for. doCall derives
+	// its context from this one, so the EVM is cancelled when it expires.
+	if limits.EVMTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, limits.EVMTimeout)
+		defer cancel()
+	}
+
 	// Binary search the gas requirement, as it may be higher than the amount used
 	var (
 		lo  uint64 = params.TxGas - 1
@@ -953,13 +972,23 @@ func (s *PublicBlockChainAPI) EstimateGas(ctx context.Context, args CallArgs, bl
 		}
 		hi = block.GasLimit()
 	}
+	// The upper bound comes straight from the request, so without a cap the caller
+	// decides both how many rounds the search runs and how much gas each round may
+	// burn.
+	if limits.GasCap != 0 && hi > limits.GasCap {
+		log.Warn("Capping gas estimation ceiling down to the configured cap", "requested", hi, "cap", limits.GasCap)
+		hi = limits.GasCap
+	}
 	cap = hi
 
 	// Create a helper to check if a gas allowance results in an executable transaction
 	executable := func(gas uint64) (bool, *core.ExecutionResult, error) {
 		args.Gas = hexutil.Uint64(gas)
 		blockhr := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
-		result, err := s.doCall(ctx, args, blockhr, vm.Config{}, 0)
+		// The outer deadline set above is the real budget and always expires first;
+		// passing it down again only so an aborted iteration reports the timeout it
+		// was actually judged against.
+		result, err := s.doCall(ctx, args, blockhr, vm.Config{}, limits.EVMTimeout)
 		if err != nil {
 			if errors.Is(err, core.ErrIntrinsicGas) {
 				return true, nil, nil // Special case, raise gas limit
