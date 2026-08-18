@@ -158,6 +158,35 @@ func (t *httpReadWriteNopCloser) Close() error {
 	return nil
 }
 
+// HTTPTimeouts bounds the lifetime of an HTTP-RPC connection.
+//
+// Note that WriteTimeout only fails the response write; it does not cancel the
+// request context, so the handler goroutine keeps running to completion. It must
+// therefore stay comfortably above any per-method timeout, so that a method which
+// gives up on its own deadline still has time to serialize and deliver its error
+// instead of having the connection cut from under it.
+type HTTPTimeouts struct {
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
+	IdleTimeout  time.Duration
+}
+
+// DefaultHTTPTimeouts is sized so that a long but legitimate query -- a wide
+// eth_getLogs scan followed by encoding a large result set -- can complete.
+var DefaultHTTPTimeouts = HTTPTimeouts{
+	ReadTimeout:  30 * time.Second,
+	WriteTimeout: 60 * time.Second,
+	IdleTimeout:  120 * time.Second,
+}
+
+var httpTimeouts = DefaultHTTPTimeouts
+
+// SetHTTPTimeouts installs the timeouts used by the HTTP-RPC server. It must be
+// called during node setup, before the endpoint starts serving requests.
+func SetHTTPTimeouts(t HTTPTimeouts) {
+	httpTimeouts = t
+}
+
 // NewHTTPServer creates a new HTTP RPC server around an API provider.
 //
 // Deprecated: Server implements http.Handler
@@ -167,9 +196,9 @@ func NewHTTPServer(cors []string, vhosts []string, srv *Server) *http.Server {
 	handler = newVHostHandler(vhosts, handler)
 	return &http.Server{
 		Handler:      handler,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		ReadTimeout:  httpTimeouts.ReadTimeout,
+		WriteTimeout: httpTimeouts.WriteTimeout,
+		IdleTimeout:  httpTimeouts.IdleTimeout,
 	}
 }
 
