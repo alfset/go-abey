@@ -91,6 +91,11 @@ var (
 
 	ErrNegativeFee = errors.New("negative fee")
 
+	// ErrPayerOrFeeNotSupported is returned for transactions carrying the payer or
+	// fee fields. Their settlement never matched what the block level accumulator
+	// pays out to the committee, so they are refused rather than executed.
+	ErrPayerOrFeeNotSupported = errors.New("payer and fee transactions are not accepted")
+
 	// ErrOversizedData is returned if the input data of a transaction is greater
 	// than some meaningful limit a user might use. This is not a consensus error
 	// making the transaction invalid, rather a DOS protection.
@@ -630,6 +635,12 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	}
 	if tx.Fee() != nil && tx.Fee().Sign() < 0 {
 		return ErrNegativeFee
+	}
+	// Checked here, ahead of the sender recovery below: deriving the signing hash
+	// clears a fee whose low 64 bits are zero, so a check placed any later would
+	// be looking at a field the transaction no longer admits to having.
+	if tx.HasPayerOrFee() {
+		return ErrPayerOrFeeNotSupported
 	}
 	// Ensure the transaction doesn't exceed the current block limit gas.
 	if pool.currentMaxGas < tx.Gas() {

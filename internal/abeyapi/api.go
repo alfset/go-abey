@@ -1908,7 +1908,15 @@ func (s *PublicTransactionPoolAPI) signPayment(payment common.Address, tx *types
 
 // SendTransaction creates a transaction for the given argument, sign it and submit it to the
 // transaction pool.
+// errPayerOrFeeNotSupported is returned for transactions carrying the payer or
+// fee fields. They are refused at submission so a caller learns immediately,
+// rather than having the transaction silently dropped by the pool.
+var errPayerOrFeeNotSupported = errors.New("payer and fee transactions are not accepted")
+
 func (s *PublicTransactionPoolAPI) SendTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) {
+	if args.Payment != (common.Address{}) || (args.Fee != nil && (*big.Int)(args.Fee).Sign() != 0) {
+		return common.Hash{}, errPayerOrFeeNotSupported
+	}
 	log.Debug("SendTransaction", "args",
 		fmt.Sprintf("API recieved  from=%v\n ,Payment=%v", args.From.String(), args.Payment.String()))
 	// Look up the wallet containing the requested signer
@@ -1967,6 +1975,9 @@ func (s *PublicTransactionPoolAPI) SendAbeyRawTransaction(ctx context.Context, e
 	if err := rlp.DecodeBytes(encodedTx, tx); err != nil {
 		log.Error("api method SendAbeyRawTransaction error", "error", err)
 		return common.Hash{}, err
+	}
+	if tx.HasPayerOrFee() {
+		return common.Hash{}, errPayerOrFeeNotSupported
 	}
 	//log.Info("api method SendAbeyRawTransaction info", "tx.info", tx.Info())
 	return submitTransaction(ctx, s.b, tx)
@@ -2540,6 +2551,9 @@ func (s *PublicTransactionPoolAPI2) signPayment(payment common.Address, tx *type
 // SendTransaction creates a transaction for the given argument, sign it and submit it to the
 // transaction pool.
 func (s *PublicTransactionPoolAPI2) SendTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) {
+	if args.Payment != (common.Address{}) || (args.Fee != nil && (*big.Int)(args.Fee).Sign() != 0) {
+		return common.Hash{}, errPayerOrFeeNotSupported
+	}
 	log.Debug("SendTransaction", "args",
 		fmt.Sprintf("API recieved  from=%v\n ,Payment=%v", args.From.String(), args.Payment.String()))
 	// Look up the wallet containing the requested signer
@@ -2598,6 +2612,9 @@ func (s *PublicTransactionPoolAPI2) SendAbeyRawTransaction(ctx context.Context, 
 	if err := rlp.DecodeBytes(encodedTx, tx); err != nil {
 		log.Error("api method SendAbeyRawTransaction error", "error", err)
 		return common.Hash{}, err
+	}
+	if tx.HasPayerOrFee() {
+		return common.Hash{}, errPayerOrFeeNotSupported
 	}
 	//log.Info("api method SendAbeyRawTransaction info", "tx.info", tx.Info())
 	return submitTransaction(ctx, s.b, tx)

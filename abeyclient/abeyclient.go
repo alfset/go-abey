@@ -697,6 +697,10 @@ func (ec *Client) SendTransaction(ctx context.Context, tx *types.Transaction) er
 //
 // If the transaction was a contract creation use the TransactionReceipt method to get the
 // contract address after the transaction has been mined.
+//
+// Deprecated: nodes no longer accept transactions carrying the payer or fee
+// fields, so this always fails. Use SendTransaction with a transaction that
+// leaves both unset.
 func (ec *Client) SendPayTransaction(ctx context.Context, tx *types.Transaction) error {
 	data, err := rlp.EncodeToBytes(tx)
 	if err != nil {

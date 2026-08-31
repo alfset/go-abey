@@ -379,6 +379,19 @@ func (tx *Transaction) To() *common.Address {
 	return &to
 }
 
+// HasPayerOrFee reports whether the transaction carries either of the payer and
+// fee fields, go-abey's own additions to the ethereum transaction.
+//
+// It reads the decoded fields directly rather than going through Fee(), because
+// deriving the signing hash clears a fee whose low 64 bits are zero. Any check
+// that runs after the sender has been recovered would see nothing.
+func (tx *Transaction) HasPayerOrFee() bool {
+	if tx.data.Payer != nil && *tx.data.Payer != (common.Address{}) {
+		return true
+	}
+	return tx.data.Fee != nil && tx.data.Fee.Sign() != 0
+}
+
 func (tx *Transaction) Payer() *common.Address {
 	if tx.data.Payer == nil {
 		return nil
